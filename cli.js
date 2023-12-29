@@ -44,6 +44,69 @@ const config = {
       }
     },
   },
+
+  volume: {
+    onLgEvents: {
+      [Events.AUDIO_STATUS_CHANGED]: (value) => {
+        publishMqttMessageIfDiffers("volume", `${value.volume}`);
+      },
+    },
+
+    onMqttMessage: (value) => {
+      lg.setVolumeLevel(parseInt(value));
+    },
+  },
+
+  backlight: {
+    onLgEvents: {
+      [Events.PICTURE_SETTINGS_CHANGED]: (value) => {
+        publishMqttMessageIfDiffers("backlight", `${value.backlight}`);
+      },
+    },
+
+    onMqttMessage: (value) => {
+      lg.setBacklight(parseInt(value));
+    },
+  },
+
+  screen: {
+    onLgEvents: {
+      [Events.SCREEN_STATE_CHANGED]: (value) => {
+        if (value.state === "Screen Off") {
+          publishMqttMessageIfDiffers("screen", "off");
+        }
+
+        if (value.state === "Screen On") {
+          publishMqttMessageIfDiffers("screen", "on");
+        }
+      },
+    },
+
+    onMqttMessage: (value) => {
+      if (value === "on") {
+        lg.turnOnTvScreen();
+      }
+
+      if (value === "off") {
+        lg.turnOffTvScreen();
+      }
+    },
+  },
+
+  input: {
+    onLgEvents: {
+      [Events.FOREGROUND_APP_CHANGED]: (value) => {
+        // not sure what else can come up here
+        if (value.appId.includes("hdmi")) {
+          publishMqttMessageIfDiffers("input", value.appId);
+        }
+      },
+    },
+
+    onMqttMessage: (value) => {
+      lg.launchApp(value);
+    },
+  },
 };
 
 function publishMqttMessageIfDiffers(topic, value) {
@@ -79,7 +142,7 @@ client.on("message", (topic, message) => {
   }
 });
 
-Object.values(config).forEach(({ onLgEvents }) => {
+Object.values(config).forEach(({ onLgEvents = {} }) => {
   Object.entries(onLgEvents).forEach(([event, handler]) => {
     lg.on(event, (value) => {
       console.log("got lg event:", event, "with value:", value);
@@ -90,35 +153,14 @@ Object.values(config).forEach(({ onLgEvents }) => {
 
 client.on("connect", () => {
   Object.keys(config).forEach((topic) => {
+    console.log("subscribing to topic:", topic);
     client.subscribe(LGTV_CONFIG.mqttBase + "/" + topic);
   });
 });
 
-// lg event FOREGROUND_APP_CHANGED foregroundAppChanged {
-//   appId: 'com.webos.app.hdmi1',
-//   subscribed: true,
-//   windowId: '',
-//   processId: ''
-// }
-//
-// lg event AUDIO_STATUS_CHANGED audioStatusChanged {
-//   volumeStatus: {
-//     activeStatus: true,
-//     adjustVolume: true,
-//     maxVolume: 100,
-//     muteStatus: false,
-//     volume: 9,
-//     mode: 'normal',
-//     soundOutput: 'tv_speaker'
-//   },
-//   callerId: 'com.webos.service.apiadapter',
-//   mute: false,
-//   volume: 9
-// }
-//
-// lg event PICTURE_SETTINGS_CHANGED pictureSettingsChanged {
-//   brightness: 50,
-//   backlight: 50,
-//   contrast: 85,
-//   color: 50
-// }
+lg.on(Events.SETUP_FINISHED, () => {
+  console.log(
+    "setup finished!\nlist of external inputs:",
+    lg.getExternalInputList()
+  );
+});
