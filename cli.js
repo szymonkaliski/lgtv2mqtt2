@@ -20,7 +20,9 @@ const LGTV_CONFIG = getConfig(".lgtv-config.json", {
 });
 
 const client = mqtt.connect(MQTT_CONFIG);
+
 const lg = new LgTvController(LGTV_CONFIG.ip, LGTV_CONFIG.mac, "keyfile");
+lg.connect();
 
 const state = {};
 const config = {
@@ -53,6 +55,10 @@ const config = {
     },
 
     onMqttMessage: (value) => {
+      if (!lg.isTvOn()) {
+        return;
+      }
+
       lg.setVolumeLevel(parseInt(value));
     },
   },
@@ -65,6 +71,10 @@ const config = {
     },
 
     onMqttMessage: (value) => {
+      if (!lg.isTvOn()) {
+        return;
+      }
+
       lg.setBacklight(parseInt(value));
     },
   },
@@ -72,17 +82,19 @@ const config = {
   screen: {
     onLgEvents: {
       [Events.SCREEN_STATE_CHANGED]: (value) => {
-        if (value.state === "Screen Off") {
-          publishMqttMessageIfDiffers("screen", "off");
-        }
-
-        if (value.state === "Screen On") {
+        if (value.state === "Screen On" || value.processing === "Screen On") {
           publishMqttMessageIfDiffers("screen", "on");
+        } else if (value.state === "Screen Off") {
+          publishMqttMessageIfDiffers("screen", "off");
         }
       },
     },
 
     onMqttMessage: (value) => {
+      if (!lg.isTvOn()) {
+        return;
+      }
+
       if (value === "on") {
         lg.turnOnTvScreen();
       }
@@ -104,6 +116,10 @@ const config = {
     },
 
     onMqttMessage: (value) => {
+      if (!lg.isTvOn()) {
+        return;
+      }
+
       lg.launchApp(value);
     },
   },
