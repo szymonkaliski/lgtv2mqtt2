@@ -7,8 +7,11 @@
   "description": "",
   "license": "ISC",
   "scripts": {
-    "setup": "./setup.sh",
-    "start": "./cli.js"
+    "start": "./cli.js",
+    "vendor-libraries": "./vendor-libraries.sh"
+  },
+  "bin": {
+    "lgtv2mqtt2": "./cli.js"
   },
   "type": "module",
   "dependencies": {
