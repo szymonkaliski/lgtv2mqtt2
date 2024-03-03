@@ -24,6 +24,7 @@ const client = mqtt.connect(MQTT_CONFIG);
 const lg = new LgTvController(
   LGTV_CONFIG.ip,
   LGTV_CONFIG.mac,
+  "LG TV",
   "keyfile",
   undefined,
   undefined,
