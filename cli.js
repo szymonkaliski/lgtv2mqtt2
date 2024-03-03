@@ -21,7 +21,22 @@ const LGTV_CONFIG = getConfig(".lgtv-config.json", {
 
 const client = mqtt.connect(MQTT_CONFIG);
 
-const lg = new LgTvController(LGTV_CONFIG.ip, LGTV_CONFIG.mac, "keyfile");
+const lg = new LgTvController(
+  LGTV_CONFIG.ip,
+  LGTV_CONFIG.mac,
+  "keyfile",
+  undefined,
+  undefined,
+  {
+    info: console.info,
+    warn: console.warn,
+    // "debug" is very noisy, TODO: configure log level through env
+    // debug: console.debug,
+    debug: () => {},
+    error: console.error,
+  }
+);
+
 lg.connect();
 
 const state = {};
