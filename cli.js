@@ -1,11 +1,27 @@
 #!/usr/bin/env node
 
 import mqtt from "mqtt";
+import path from "path";
+import yargs from "yargs";
+import { homedir } from "os";
 
 import LgTvController from "./vendor/LgTvController.js";
 import Events from "./vendor/Events.js";
 
 import getConfig from "./get-config.js";
+
+const argv = yargs(process.argv)
+  .option("keyfile", {
+    describe: "Path to the keyfile",
+    type: "string",
+    default: path.join(homedir(), ".lgtv-keyfile"),
+  })
+  .option("log-level", {
+    describe: "Set the log level",
+    choices: ["debug", "info", "warn", "error"],
+    default: "info",
+  })
+  .parse();
 
 const MQTT_CONFIG = getConfig(".mqtt-config.json", {
   host: "MQTT_BROKER_ADDRESS",
@@ -21,20 +37,29 @@ const LGTV_CONFIG = getConfig(".lgtv-config.json", {
 
 const client = mqtt.connect(MQTT_CONFIG);
 
+const loggerPrecedence = {
+  debug: ["debug", "info", "warn", "error"],
+  info: ["info", "warn", "error"],
+  warn: ["warn", "error"],
+  error: ["error"],
+};
+
+const allowedLoggers = loggerPrecedence[argv["log-level"]];
+
+function NOP() {}
+
 const lg = new LgTvController(
   LGTV_CONFIG.ip,
   LGTV_CONFIG.mac,
   "LG TV",
-  "keyfile",
+  argv.keyfile,
   undefined,
   undefined,
   {
-    info: console.info,
-    warn: console.warn,
-    // "debug" is very noisy, TODO: configure log level through env
-    // debug: console.debug,
-    debug: () => {},
-    error: console.error,
+    info: allowedLoggers.includes("info") ? console.info : NOP,
+    warn: allowedLoggers.includes("warn") ? console.warn : NOP,
+    debug: allowedLoggers.includes("debug") ? console.debug : NOP,
+    error: allowedLoggers.includes("error") ? console.error : NOP,
   }
 );
 
@@ -46,9 +71,15 @@ const config = {
     onLgEvents: {
       [Events.TV_TURNED_ON]: () => {
         publishMqttMessageIfDiffers("power", "on");
+        publishMqttMessageIfDiffers("screen", "on");
       },
       [Events.TV_TURNED_OFF]: () => {
         publishMqttMessageIfDiffers("power", "off");
+
+        // reset all other settings to "0" when powered off
+        publishMqttMessageIfDiffers("backlight", "0");
+        publishMqttMessageIfDiffers("volume", "0");
+        publishMqttMessageIfDiffers("screen", "off");
       },
     },
 
@@ -191,8 +222,6 @@ client.on("connect", () => {
 });
 
 lg.on(Events.SETUP_FINISHED, () => {
-  console.log(
-    "setup finished!\nlist of external inputs:",
-    lg.getExternalInputList()
-  );
+  console.log("setup finished!\nlist of external inputs:");
+  console.log(lg.getExternalInputList());
 });
