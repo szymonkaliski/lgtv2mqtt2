@@ -2,8 +2,25 @@ import { homedir } from "os";
 import path from "path";
 import fs from "fs";
 
-export default function getConfig(filePath, exampleConfig) {
-  const configPath = path.join(homedir(), filePath);
+import paths from "./paths.js";
+
+function migrateIfNeeded(fileName, oldFileName) {
+  const oldPath = path.join(homedir(), oldFileName);
+  const newPath = path.join(paths.config, fileName);
+
+  if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+    fs.mkdirSync(paths.config, { recursive: true });
+    fs.renameSync(oldPath, newPath);
+    console.log(`Migrated ${oldPath} -> ${newPath}`);
+  }
+}
+
+export default function getConfig(fileName, exampleConfig, oldFileName) {
+  if (oldFileName) {
+    migrateIfNeeded(fileName, oldFileName);
+  }
+
+  const configPath = path.join(paths.config, fileName);
 
   if (!fs.existsSync(configPath)) {
     console.log(`No "${configPath}" found, create one with this content:

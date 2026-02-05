@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import mqtt from "mqtt";
+import fs from "fs";
 import path from "path";
 import yargs from "yargs";
 import { homedir } from "os";
@@ -9,12 +10,26 @@ import LgTvController from "./vendor/LgTvController.js";
 import Events from "./vendor/Events.js";
 
 import getConfig from "./get-config.js";
+import paths from "./paths.js";
+
+function migrateKeyfile() {
+  const oldPath = path.join(homedir(), ".lgtv-keyfile");
+  const newPath = path.join(paths.data, "keyfile");
+
+  if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+    fs.mkdirSync(paths.data, { recursive: true });
+    fs.renameSync(oldPath, newPath);
+    console.log(`Migrated ${oldPath} -> ${newPath}`);
+  }
+}
+
+migrateKeyfile();
 
 const argv = yargs(process.argv)
   .option("keyfile", {
     describe: "Path to the keyfile",
     type: "string",
-    default: path.join(homedir(), ".lgtv-keyfile"),
+    default: path.join(paths.data, "keyfile"),
   })
   .option("log-level", {
     describe: "Set the log level",
@@ -23,17 +38,25 @@ const argv = yargs(process.argv)
   })
   .parse();
 
-const MQTT_CONFIG = getConfig(".mqtt-config.json", {
-  host: "MQTT_BROKER_ADDRESS",
-  username: "MQTT_BROKER_USERNAME",
-  password: "MQTT_BROKER_PASSWORD",
-});
+const MQTT_CONFIG = getConfig(
+  "mqtt.json",
+  {
+    host: "MQTT_BROKER_ADDRESS",
+    username: "MQTT_BROKER_USERNAME",
+    password: "MQTT_BROKER_PASSWORD",
+  },
+  ".mqtt-config.json"
+);
 
-const LGTV_CONFIG = getConfig(".lgtv-config.json", {
-  ip: "LGTV_IP",
-  mac: "LGTV_MAC",
-  mqttBase: "MQTT_BASE_PATH",
-});
+const LGTV_CONFIG = getConfig(
+  "lgtv.json",
+  {
+    ip: "LGTV_IP",
+    mac: "LGTV_MAC",
+    mqttBase: "MQTT_BASE_PATH",
+  },
+  ".lgtv-config.json"
+);
 
 const client = mqtt.connect(MQTT_CONFIG);
 
