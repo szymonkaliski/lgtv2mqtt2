@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import { EventEmitter } from 'node:events';
 import util from 'util';
 import WebSocketClient from 'websocket';
-import ppath from 'persist-path';
+import paths from '../../paths.js';
 import mkdirp from 'mkdirp';
 import PairingJson from './pairing.js';
 
@@ -57,8 +57,8 @@ var LGTV = function(config) {
   };
 
   if (typeof config.clientKey === 'undefined') {
-    mkdirp(ppath('lgtv2'));
-    config.keyFile = (config.keyFile ? config.keyFile : ppath('lgtv2/keyfile-') + config.url.replace(/[a-z]+:\/\/([0-9a-zA-Z-_.]+):\d+/, '$1'));
+    mkdirp(paths.data);
+    config.keyFile = (config.keyFile ? config.keyFile : paths.data + '/keyfile-' + config.url.replace(/[a-z]+:\/\/([0-9a-zA-Z-_.]+):\d+/, '$1'));
     try {
       that.clientKey = fs.readFileSync(config.keyFile).toString();
     } catch (err) {}

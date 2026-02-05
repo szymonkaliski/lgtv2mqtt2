@@ -20,9 +20,9 @@
   },
   "type": "module",
   "dependencies": {
+    "env-paths": "^4.0.0",
     "mkdirp": "^1.0.4",
     "mqtt": "^5.5.0",
-    "persist-path": "^1.0.2",
     "tcp-ping": "^0.1.1",
     "wake_on_lan": "^1.0.0",
     "websocket": "^1.0.34",

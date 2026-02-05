@@ -9,7 +9,7 @@ I only exposed the endpoints that I care about, and this repository is provided 
 ## Installation
 
 1. `npm install lgtv2mqtt2` (optionally with `-g` if you want it to be available globally)
-2. create `~/.mqtt-config.json` containing:
+2. create `~/.config/lgtv2mqtt2/mqtt.json` containing:
   ```
   {
     host: "MQTT_BROKER_ADDRESS",
@@ -17,7 +17,7 @@ I only exposed the endpoints that I care about, and this repository is provided 
     password: "MQTT_BROKER_PASSWORD"
   }
   ```
-3. create `~/.lgtv-config.json` containing:
+3. create `~/.config/lgtv2mqtt2/lgtv.json` containing:
   ```
   {
     ip: "LGTV_IP",
@@ -27,6 +27,8 @@ I only exposed the endpoints that I care about, and this repository is provided 
   ```
   - it's best to assign static IP to your TV, and note the MAC address from the router
   - the `mqttBase` is the path under which the properties will be stored
+
+Config files follow the [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/) convention. If `XDG_CONFIG_HOME` is set, config files are stored under `$XDG_CONFIG_HOME/lgtv2mqtt2/` instead. Existing config files in `~/` are automatically migrated on first run.
 
 ## Usage
 
