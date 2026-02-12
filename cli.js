@@ -58,7 +58,16 @@ const LGTV_CONFIG = getConfig(
   ".lgtv-config.json"
 );
 
-const client = mqtt.connect(MQTT_CONFIG);
+const statusTopic = LGTV_CONFIG.mqttBase + "/lwt";
+
+const client = mqtt.connect({
+  ...MQTT_CONFIG,
+  will: {
+    topic: statusTopic,
+    payload: "Offline",
+    retain: true,
+  },
+});
 
 const loggerPrecedence = {
   debug: ["debug", "info", "warn", "error"],
@@ -238,6 +247,7 @@ Object.values(config).forEach(({ onLgEvents = {} }) => {
 });
 
 client.on("connect", () => {
+  client.publishAsync(statusTopic, "Online", { retain: true });
   Object.keys(config).forEach((topic) => {
     console.log("subscribing to topic:", topic);
     client.subscribe(LGTV_CONFIG.mqttBase + "/" + topic);
