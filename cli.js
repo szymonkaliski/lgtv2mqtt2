@@ -24,6 +24,7 @@ function migrateKeyfile() {
 }
 
 migrateKeyfile();
+fs.mkdirSync(paths.data, { recursive: true });
 
 const argv = yargs(process.argv)
   .option("keyfile", {
@@ -97,21 +98,25 @@ const lg = new LgTvController(
 
 lg.connect();
 
+const originalDisconnect = lg.disconnect.bind(lg);
+lg.disconnect = function () {
+  originalDisconnect();
+  lg.emit(Events.TV_TURNED_OFF, {});
+};
+
 const state = {};
 const config = {
   power: {
     onLgEvents: {
       [Events.TV_TURNED_ON]: () => {
-        publishMqttMessageIfDiffers("power", "on");
-        publishMqttMessageIfDiffers("screen", "on");
+        forcePublishMqtt("power", "on");
+        forcePublishMqtt("screen", "on");
       },
       [Events.TV_TURNED_OFF]: () => {
-        publishMqttMessageIfDiffers("power", "off");
-
-        // reset all other settings to "0" when powered off
-        publishMqttMessageIfDiffers("backlight", "0");
-        publishMqttMessageIfDiffers("volume", "0");
-        publishMqttMessageIfDiffers("screen", "off");
+        publishOffState();
+      },
+      [Events.PIXEL_REFRESHER_STARTED]: () => {
+        publishOffState();
       },
     },
 
@@ -206,11 +211,22 @@ const config = {
 
 function publishMqttMessageIfDiffers(topic, value) {
   if (state[topic] !== value) {
-    client.publishAsync(LGTV_CONFIG.mqttBase + "/" + topic, value, {
-      retain: true,
-    });
-    state[topic] = value;
+    forcePublishMqtt(topic, value);
   }
+}
+
+function forcePublishMqtt(topic, value) {
+  client.publishAsync(LGTV_CONFIG.mqttBase + "/" + topic, value, {
+    retain: true,
+  });
+  state[topic] = value;
+}
+
+function publishOffState() {
+  forcePublishMqtt("power", "off");
+  forcePublishMqtt("backlight", "0");
+  forcePublishMqtt("volume", "0");
+  forcePublishMqtt("screen", "off");
 }
 
 client.on("message", (topic, message) => {
