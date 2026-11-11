@@ -9,6 +9,7 @@ const TV_WEBSOCKET_PORT = 3000;
 const TV_WEBSOCKET_SSL_PORT = 3001;
 const AUTO_PROMISE_RESOLVE_TIMEOUT = 5000;
 const LIVE_TV_SUBSCRIBE_DELAY = 2000;
+const RECONNECT_BACKOFF_MAX = 60000; // cap for the reconnect backoff in miliseconds
 const WEBOS_LIVE_TV_APP_ID = 'com.webos.app.livetv';
 const WEBOS_YOUTUBE_APP_ID = 'youtube.leanback.v4';
 const WEBOS_NETFLIX_APP_ID = 'netflix';
@@ -91,13 +92,16 @@ class LgTvController extends EventEmitter {
     if (this.reconnect < 1000) {
       this.reconnect = this.reconnect * 1000;
     }
+    this.reconnectBackoff = this.reconnect; // current reconnect delay, grows on repeated failures, reset on connect
 
     // basic variables
     this.url = 'ws://' + this.ip + ':' + TV_WEBSOCKET_PORT;
     this.secureUrl = 'wss://' + this.ip + ':' + TV_WEBSOCKET_SSL_PORT;
     this.useSsl = false;
+    this.forceSsl = false; // when true, always connect via wss and never fall back to plain ws
     this.connected = false;
     this.pointerInputSocket = null;
+    this.reconnectTimer = null; // handle of the currently scheduled reconnect, null when none pending
 
     // tv STUFF
     this.prepareTvVariables();
@@ -146,13 +150,27 @@ class LgTvController extends EventEmitter {
     this.connected = false;
     this.prepareTvVariables();
 
-    // start the reconnecting, after the specified polling interval time and only if still not connected
-    setTimeout(() => {
+    // schedule the reconnect (only if still not connected)
+    this.scheduleReconnect();
+  }
+
+  scheduleReconnect() {
+    // only ever keep a single pending reconnect timer, overlapping close/error events must not stack timers
+    if (this.reconnectTimer) {
+      return;
+    }
+
+    let delay = this.reconnectBackoff;
+    // grow the backoff for the next attempt, capped at the max
+    this.reconnectBackoff = Math.min(this.reconnectBackoff * 2, RECONNECT_BACKOFF_MAX);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       if (this.connected === false) {
         this.logInfo('Starting TV alive polling');
         this.connect();
       }
-    }, this.reconnect);
+    }, delay);
   }
 
   setupLgtvInstance() {
@@ -169,6 +187,12 @@ class LgTvController extends EventEmitter {
       if (this.connected === false) {
         this.logInfo('Connected to TV');
         this.connected = true;
+        // successful connection, reset the reconnect backoff and cancel any pending reconnect
+        this.reconnectBackoff = this.reconnect;
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         this.setupTvConnection();
       }
     });
@@ -185,14 +209,15 @@ class LgTvController extends EventEmitter {
 
     this.lgtv.on('error', (error) => {
       this.logDeepDebug('Error - %s', error);
-      if (error.code === 'ECONNRESET' && !this.useSsl) {
+      if (error.code === 'ECONNRESET' && !this.useSsl && !this.forceSsl) {
         this.logDebug('Connection was reset! Possibly SSL is required!');
         this.logDebug('Trying again with ssl enabled...');
         this.useSsl = true;
         this.connect();
-      } else {
+      } else if (!this.forceSsl) {
         this.useSsl = false;
       }
+      // when forceSsl is set, keep useSsl = true and let the normal reconnect retry over wss
     });
 
     this.lgtv.on('prompt', () => {
@@ -353,21 +378,21 @@ class LgTvController extends EventEmitter {
         this.isScreenOn = true;
         this.logInfo(`TV turned on!`);
         this.emit(Events.TV_TURNED_ON, res);
-      } else if (tvPowerState === 'Off') {
+      } else if (tvPowerState === 'Off' && this.isTvOn() === true) {
         this.tvOn = false;
         this.isScreenOn = false;
         this.logInfo(`TV turned off!`);
         this.emit(Events.TV_TURNED_OFF, res);
-      } else if (tvPowerState === 'Pixel Refresher') {
+      } else if (tvPowerState === 'Pixel Refresher' && this.isTvOn() === true) {
         this.tvOn = false;
         this.isScreenOn = false;
         this.logInfo(`Pixel refresher started!`);
         this.emit(Events.PIXEL_REFRESHER_STARTED, res);
-      } else if (tvPowerState === 'Screen On') {
+      } else if (tvPowerState === 'Screen On' && this.isScreenOn === false) {
         this.logInfo(`Screen turned on!`);
         this.isScreenOn = true;
         this.emit(Events.SCREEN_STATE_CHANGED, res);
-      } else if (tvPowerState === 'Screen Off') {
+      } else if (tvPowerState === 'Screen Off' && this.isScreenOn === true) {
         this.logInfo(`Screen turned off!`);
         this.isScreenOn = false;
         this.emit(Events.SCREEN_STATE_CHANGED, res);
@@ -707,9 +732,11 @@ class LgTvController extends EventEmitter {
           this.lgtv.request(methodUri, payload, (err, res) => {
             if (!res || err || res.errorCode || res.errorText || !res.returnValue) {
               if (res && Object.keys(res).length > 0) {
-                reject(`Request failed. Error text: ${ res.errorText}, Error code: ${ res.errorCode}`);
+                reject(`Request failed for ${method} from service ${service}. Error text: ${ res.errorText}, Error code: ${ res.errorCode}. Response: ${JSON.stringify(res)}`);
+              } else if (err) {
+                reject(`Request failed for ${method} from service ${service}: ${err}`);
               } else {
-                reject(`Unknown error while requesting ${method} from service ${service}`);
+                reject(`Unknown error while requesting ${method} from service ${service}. Response: ${JSON.stringify(res)}`);
               }
             } else {
               this.logDeepDebugTvResponse(res); // log the Tv response
@@ -738,7 +765,9 @@ class LgTvController extends EventEmitter {
           this.lgtv.subscribe(methodUri, payload, (err, res) => {
             if (!res || Object.keys(res).length == 0 || err || res.errorCode || res.errorText) {
               if (res && Object.keys(res).length > 0) {
-                reject(`Could not subscribe to ${method} from service ${service}. Error text: ${ res.errorText}, Error code: ${ res.errorCode}`);
+                reject(`Could not subscribe to ${method} from service ${service}. Error text: ${ res.errorText}, Error code: ${ res.errorCode}. Response: ${JSON.stringify(res)}`);
+              } else if (err) {
+                reject(`Could not subscribe to ${method} from service ${service}: ${err}`);
               } else {
                 reject(`Unknown error while subscribing to ${method} from service ${service}`);
               }
@@ -762,7 +791,6 @@ class LgTvController extends EventEmitter {
         ]);
       } else {
         this.logDebug(`TV not connected - cannot subscribe to ${method} from service ${service}!`);
-        resolve();
       }
     }
   }
@@ -877,16 +905,26 @@ class LgTvController extends EventEmitter {
       }
     });
     return new Promise((resolve, reject) => {
-      setTimeout(resolve, Math.max(AUTO_PROMISE_RESOLVE_TIMEOUT * 6, this.reconnect)); //backup, turn on takes longer to process so auto resolve after 30 seconds or at least the choosen reconnect time
-      this.once(Events.TV_TURNED_ON, resolve)
+      let finish = (...args) => {
+        clearTimeout(backupTimer);
+        this.removeListener(Events.TV_TURNED_ON, finish);
+        resolve(...args);
+      };
+      let backupTimer = setTimeout(finish, Math.max(AUTO_PROMISE_RESOLVE_TIMEOUT * 6, this.reconnect)); //backup, turn on takes longer to process so auto resolve after 30 seconds or at least the choosen reconnect time
+      this.once(Events.TV_TURNED_ON, finish);
     })
   }
 
   async turnOff() {
     this.tvRequest(WEBOS_URI_TURN_OFF, {}, ``);
     return new Promise((resolve, reject) => {
-      setTimeout(resolve, AUTO_PROMISE_RESOLVE_TIMEOUT * 6); //backup, also auto resolve after 30 seconds when turning off since it might take longer
-      this.once(Events.TV_TURNED_OFF, resolve)
+      let finish = (...args) => {
+        clearTimeout(backupTimer);
+        this.removeListener(Events.TV_TURNED_OFF, finish);
+        resolve(...args);
+      };
+      let backupTimer = setTimeout(finish, AUTO_PROMISE_RESOLVE_TIMEOUT * 6); //backup, also auto resolve after 30 seconds when turning off since it might take longer
+      this.once(Events.TV_TURNED_OFF, finish);
     })
   }
 
@@ -1079,8 +1117,13 @@ class LgTvController extends EventEmitter {
   async openLiveTv() {
     this.launchApp(WEBOS_LIVE_TV_APP_ID);
     return new Promise((resolve, reject) => {
-      setTimeout(resolve, AUTO_PROMISE_RESOLVE_TIMEOUT); //backup, auto resolve the promise after 5 sec, just in case the event gets stuck!
-      this.once(Events.FOREGROUND_APP_CHANGED, resolve)
+      let finish = (...args) => {
+        clearTimeout(backupTimer);
+        this.removeListener(Events.FOREGROUND_APP_CHANGED, finish);
+        resolve(...args);
+      };
+      let backupTimer = setTimeout(finish, AUTO_PROMISE_RESOLVE_TIMEOUT); //backup, auto resolve the promise after 5 sec, just in case the event gets stuck!
+      this.once(Events.FOREGROUND_APP_CHANGED, finish);
     })
   }
 
@@ -1404,6 +1447,20 @@ class LgTvController extends EventEmitter {
       this.sendRemoteInputSocketCommand('PAUSE');
     }
     this.mediaPaused = !this.mediaPaused;
+  }
+
+
+  /*----------========== CONNECTION ==========----------*/
+
+  setForceSsl(forceSsl = false) {
+    this.forceSsl = forceSsl;
+    if (forceSsl) {
+      this.useSsl = true;
+    }
+  }
+
+  isForceSslEnabled() {
+    return this.forceSsl;
   }
 
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+wget https://github.com/merdok/homebridge-webos-tv/archive/d5590099f8a6e8276d348a7bd4953259a5135425.zip -O "$tmpdir/homebridge-webos-tv.zip"
+unzip "$tmpdir/homebridge-webos-tv.zip" -d "$tmpdir/homebridge-webos-tv"
 
 rm -rf vendor && mkdir vendor
-pushd vendor
-wget https://github.com/merdok/homebridge-webos-tv/archive/eefed076a07b53ea8c4a89731e1156a9e4074422.zip -O homebridge-webos-tv.zip
-unzip homebridge-webos-tv.zip -d homebridge-webos-tv
-rm -rf homebridge-webos-tv.zip
-mv homebridge-webos-tv/*/lib/* .
-rm -rf homebridge-webos-tv
-popd
+mv "$tmpdir"/homebridge-webos-tv/*/lib/* vendor/
