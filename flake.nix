@@ -1,5 +1,5 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
 
   outputs = { nixpkgs, ... }:
     let
@@ -12,6 +12,7 @@
           packages = with pkgs; [
             nodejs_22
             unzip
+            wget
             mosquitto
           ];
         };
